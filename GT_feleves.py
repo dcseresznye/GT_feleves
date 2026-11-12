@@ -6,9 +6,13 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import streamlit as st
 
-st.title("CSV beolvasása")
 
-df = pd.read_csv("ai_model_price_history.csv")  # ide írd a saját fájlod nevét
 
-st.write("Az első 5 sor:")
-st.dataframe(df.head(5))
+HIST_PATH = "ai_models_prices.csv"   # heti ártörténet (week_start, model_id, ...)
+MODELS_PATH = "ai_models_2026.csv"   # 2026-os modell-pillanatkép (képességek, limitek)
+IN_COL = "input_price_per_1m_tokens"
+OUT_COL = "output_price_per_1m_tokens"
+ 
+st.set_page_config(page_title="AI modell költségkalkulátor", layout="wide")
+st.title("AI modell költségkalkulátor")
+ 
