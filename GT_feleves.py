@@ -53,4 +53,35 @@ def load_net(name):
     return tf.keras.models.load_model(os.path.join(MODEL_DIR, f"{name.lower()}.keras"))
 
 
+
+
+
+# ----------------------------- előfeltételek ----------------------------- #
+if not os.path.exists(META_PATH):
+    st.error("Még nincs betanított modell. Futtasd előbb a terminálban: `python train_model.py`")
+    st.stop()
+
+meta = load_meta()
+first_week = meta["first_week"]
+df = load_history(first_week)
+aktiv = load_active(first_week)
+last_week = pd.Timestamp(first_week) + pd.Timedelta(weeks=int(df["w"].max()))
+
+
+
+
+
+# ----------------------------- bemenetek ----------------------------- #
+with st.sidebar:
+    st.header("Beállítások")
+    provider = st.selectbox("Szolgáltató", sorted(aktiv["provider"].unique()))
+    model_id = st.selectbox("Modell", aktiv.loc[aktiv["provider"] == provider, "model_id"].tolist())
+    hetek = st.select_slider("Hány hét múlva?", options=list(range(HORIZON, 53, HORIZON)), value=2 * HORIZON)
+    net_name = st.selectbox("Előrejelző háló", meta["trained"], index=meta["trained"].index(meta["best"]))
+
+    st.subheader("Használat")
+    in_tokens = st.number_input("Bemeneti tokenek / kérés", min_value=0, value=2000, step=100)
+    out_tokens = st.number_input("Kimeneti tokenek / kérés", min_value=0, value=500, step=100)
+    kerelmek = st.number_input("Kérések száma", min_value=1, value=10000, step=1000)
+
  
