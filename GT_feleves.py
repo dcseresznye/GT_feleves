@@ -14,8 +14,12 @@ from sklearn.preprocessing import LabelEncoder
 
 
 
+SEED = 1
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
 
-HIST_PATH = "ai_models_prices.csv"   # heti ártörténet (week_start, model_id, ...)
+
+HIST_PATH = "ai_model_price_history.csv"   # heti ártörténet (week_start, model_id, ...)
 MODELS_PATH = "ai_models_2026.csv"   # 2026-os modell-pillanatkép (képességek, limitek)
 IN_COL = "input_price_per_1m_tokens"
 OUT_COL = "output_price_per_1m_tokens"
@@ -23,5 +27,6 @@ OUT_COL = "output_price_per_1m_tokens"
 st.set_page_config(page_title="AI modell költségkalkulátor", layout="wide")
 st.title("AI modell költségkalkulátor")
 
+pd.read_csv(HIST_PATH)
 
  
