@@ -20,19 +20,37 @@ from train_model import (HIST_PATH, MODELS_PATH, IN_COL, OUT_COL, HORIZON, MODEL
 
 
 
-SEED = 1
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
-
-
-HIST_PATH = "ai_model_price_history.csv"   # heti ártörténet (week_start, model_id, ...)
-MODELS_PATH = "ai_models_2026.csv"   # 2026-os modell-pillanatkép (képességek, limitek)
-IN_COL = "input_price_per_1m_tokens"
-OUT_COL = "output_price_per_1m_tokens"
- 
 st.set_page_config(page_title="AI modell költségkalkulátor", layout="wide")
 st.title("AI modell költségkalkulátor")
 
-pd.read_csv(HIST_PATH)
+
+# ----------------------------- adatbetöltés (gyorsítótárazva) ----------------------------- #
+@st.cache_data
+def load_meta():
+    with open(META_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+@st.cache_data
+def load_history(first_week):
+    df, _ = prepare_history(pd.read_csv(HIST_PATH), first_week)
+    return df
+
+
+@st.cache_data
+def load_active(first_week):
+    return active_models(load_history(first_week))
+
+
+@st.cache_data
+def load_snapshot():
+    return pd.read_csv(MODELS_PATH)
+
+
+@st.cache_resource
+def load_net(name):
+    import tensorflow as tf
+    return tf.keras.models.load_model(os.path.join(MODEL_DIR, f"{name.lower()}.keras"))
+
 
  
