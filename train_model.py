@@ -161,7 +161,107 @@ def request_cost(in_tokens, out_tokens, requests, price_in, price_out):
 # Háló + tanítás
 # --------------------------------------------------------------------------- #
 
+def build_model(kind):
+    from tensorflow.keras.models import Model
+    from tensorflow.keras.layers import (Input, Embedding, GlobalAveragePooling1D, Conv1D,
+                                         GlobalMaxPooling1D, LSTM, GRU, Bidirectional, Dropout, Dense)
 
+    inp = Input((2 * WINDOW,), dtype="int32", name="ar_tokenek")
+    x = Embedding(input_dim=VOCAB_SIZE, output_dim=EMBED_DIM)(inp)
+
+    if kind == "GlobalAvgPool":
+        x = GlobalAveragePooling1D()(x)
+    elif kind == "Conv1D":
+        x = GlobalMaxPooling1D()(Conv1D(filters=64, kernel_size=4, activation="relu")(x))
+    elif kind == "LSTM":
+        x = LSTM(64)(x)
+    elif kind == "GRU":
+        x = GRU(64)(x)
+    elif kind == "BiLSTM":
+        x = Bidirectional(LSTM(64))(x)
+    else:
+        raise ValueError(kind)
+
+    x = Dropout(0.3)(x)
+    x = Dense(64, activation="relu")(x)
+    x = Dropout(0.3)(x)
+    out_in = Dense(N_CLASSES, activation="softmax", name="input_valtozas")(x)
+    out_out = Dense(N_CLASSES, activation="softmax", name="output_valtozas")(x)
+
+    m = Model(inp, [out_in, out_out])
+    m.compile(optimizer="adam", loss=["sparse_categorical_crossentropy", "sparse_categorical_crossentropy"])
+    return m
+
+
+def mae_log1p(pred, true, mask=None):
+    """Átlagos abszolút hiba a log(1+ár) skálán (nagyjából relatív hiba: 0.01 ≈ 1%)."""
+    err = np.abs(np.log1p(pred) - np.log1p(true))
+    if mask is not None:
+        if mask.sum() == 0:
+            return None
+        err = err[mask]
+    return float(err.mean())
+
+
+def main():
+    import tensorflow as tf
+    from tensorflow.keras.callbacks import EarlyStopping
+
+    np.random.seed(SEED)
+    tf.random.set_seed(SEED)
+    os.makedirs(MODEL_DIR, exist_ok=True)
+
+    df, first_week = prepare_history(pd.read_csv(HIST_PATH))
+    X, Y, Wt, last_p, true_p = build_windows(df)
+    print("Minták:", X.shape, "| célok:", Y.shape)
+
+    # Időalapú felosztás (nem véletlen): 80% múlt = tanító, 10% validáció, 10% teszt
+    cut_val, cut_test = np.quantile(Wt, 0.80), np.quantile(Wt, 0.90)
+    tr, va, te = Wt < cut_val, (Wt >= cut_val) & (Wt < cut_test), Wt >= cut_test
+    print("train / val / test:", tr.sum(), va.sum(), te.sum())
+
+    # a két kimenet (input ár, output ár) célosztálya: Y oszlopai
+    def targets(mask):
+        return [Y[mask][:, 0], Y[mask][:, 1]]
+
+    changed = (np.abs(true_p[te] - last_p[te]) > 1e-12).any(axis=1)
+    results = [{"model": "Naiv (nem változik)",
+                "mae_all": mae_log1p(last_p[te], true_p[te]),
+                "mae_changed": mae_log1p(last_p[te], true_p[te], changed)}]
+
+    for kind in MODEL_KINDS:
+        print(f"\n=== {kind} ===")
+        net = build_model(kind)
+        es = EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True)   # modellenként új
+        net.fit(X[tr], targets(tr), epochs=EPOCHS, batch_size=BATCH_SIZE,
+                validation_data=(X[va], targets(va)), callbacks=[es], verbose=1)
+        net.save(os.path.join(MODEL_DIR, f"{kind.lower()}.keras"))
+        p_in, p_out = net.predict(X[te], batch_size=1024, verbose=0)
+        pred = decode_prices(last_p[te], p_in, p_out)
+        results.append({"model": kind,
+                        "mae_all": mae_log1p(pred, true_p[te]),
+                        "mae_changed": mae_log1p(pred, true_p[te], changed)})
+
+    nets = [r for r in results if r["model"] in MODEL_KINDS]
+    best = min(nets, key=lambda r: r["mae_all"])["model"]
+
+    meta = {
+        "first_week": str(first_week.date()),
+        "window": WINDOW, "horizon": HORIZON, "step": STEP, "d": D,
+        "trained": MODEL_KINDS, "best": best, "results": results,
+        "test_changed_share": float(changed.mean()),
+        "n_samples": {"train": int(tr.sum()), "val": int(va.sum()), "test": int(te.sum())},
+    }
+    with open(META_PATH, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    print("\nTeszt eredmények (log(1+ár) skálán mért átlagos abszolút hiba, kisebb = jobb):")
+    print(pd.DataFrame(results).round(5).to_string(index=False))
+    print(f"\nLegjobb háló: {best}. Mentve a '{MODEL_DIR}' mappába.")
+
+
+if __name__ == "__main__":
+    main()
 
 
 
