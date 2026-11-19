@@ -100,6 +100,60 @@ def build_windows(df):
 
 
 
+def decode_prices(last, p_in, p_out):
+    """Osztály-valószínűségek -> várható ár. last: (n,2) mostani ár, p_*: (n, N_CLASSES).
+    A várható sávváltozást alkalmazzuk az aktuális árra (a 0 Ft-os ár 0 marad)."""
+    e = np.stack([np.asarray(p_in) @ DELTAS, np.asarray(p_out) @ DELTAS], axis=1)
+    return np.asarray(last, dtype=float) * 10 ** (STEP * e)
+
+
+def forecast(model, prices, steps):
+    """Rekurzív előrejelzés: `steps` db HORIZON-hetes lépés. Visszaad (steps*HORIZON, 2) nyers árat."""
+    window = np.asarray(prices[-WINDOW:], dtype=float)
+    if len(window) < WINDOW or np.isnan(window).any():
+        raise ValueError(f"Kevés vagy hiányos ártörténet (legalább {WINDOW} egymást követő hét kell).")
+    path = []
+    for _ in range(steps):
+        x = interleave(to_tokens(window))[None].astype("int32")
+        p_in, p_out = model.predict(x, verbose=0)                     # két softmax kimenet
+        new = decode_prices(window[-1][None], np.asarray(p_in), np.asarray(p_out))[0]
+        # heti értékek a mostani és a jósolt ár között (log(1+ár) skálán lineárisan)
+        weekly = np.expm1(np.linspace(np.log1p(window[-1]), np.log1p(new), HORIZON + 1)[1:])
+        path.append(weekly)
+        window = np.vstack([window, weekly])[-WINDOW:]
+    return np.vstack(path)
+
+
+def active_models(df):
+    """Azok a modellek, amelyek az utolsó adathéten is szerepelnek, és megvan az utolsó WINDOW hetük."""
+    max_w = df["w"].max()
+    recent = df[df["w"] >= max_w - WINDOW + 1]
+    cnt = recent.groupby("model_id").size()
+    ok = cnt[cnt == WINDOW].index
+    cols = ["model_id", "provider", "model_name", "developer"]
+    out = df[df["model_id"].isin(ok)].drop_duplicates("model_id", keep="last")[cols]
+    return out.sort_values(["provider", "model_id"]).reset_index(drop=True)
+
+
+def chart_frame(prices, start_w, path, first_week, history_weeks=52):
+    """Tényleges + jósolt ár egy közös táblában, grafikonhoz."""
+    first_week = pd.Timestamp(first_week)
+    hist_idx = first_week + pd.to_timedelta((start_w + np.arange(len(prices))) * 7, unit="D")
+    hist = pd.DataFrame(prices, index=hist_idx,
+                        columns=["Input – tényleges", "Output – tényleges"]).tail(history_weeks)
+    fut_idx = hist_idx[-1] + pd.to_timedelta(np.arange(1, len(path) + 1) * 7, unit="D")
+    fut = pd.DataFrame(path, index=fut_idx, columns=["Input – jóslat", "Output – jóslat"])
+    anchor = pd.DataFrame([hist.iloc[-1].values], index=[hist.index[-1]], columns=fut.columns)
+    return pd.concat([hist, pd.concat([anchor, fut])], axis=1).sort_index()
+
+
+def request_cost(in_tokens, out_tokens, requests, price_in, price_out):
+    """Költség: kérések száma * (bemeneti tokenek/1M * input ár + kimeneti tokenek/1M * output ár)."""
+    return requests * (in_tokens / 1e6 * price_in + out_tokens / 1e6 * price_out)
+
+
+
+
 
 
 
