@@ -1,13 +1,17 @@
-import pandas as pd
+import json
+import os
+
 import numpy as np
-import streamlit as st
-import streamlit as st
-import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow import keras
-from tensorflow.keras import layers
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import (Input, Embedding, Flatten, Concatenate, Dense, Dropout,
-                                     GRU, LSTM, Conv1D, GlobalMaxPooling1D, Cropping1D)
-from tensorflow.keras.callbacks import EarlyStopping
-from sklearn.preprocessing import LabelEncoder
+import pandas as pd
+
+SEED = 1
+
+HIST_PATH = "ai_model_price_history.csv"   # heti ártörténet (week_start, model_id, ...)
+MODELS_PATH = "ai_models_2026.csv"         # 2026-os modell-pillanatkép (képességek, limitek)
+IN_COL = "input_price_per_1m_tokens"
+OUT_COL = "output_price_per_1m_tokens"
+PRICE_COLS = [IN_COL, OUT_COL]
+
+WINDOW = 12          # ennyi heti múltbeli ár alapján jósolunk
+HORIZON = 4          # egy jóslási lépés hossza (hét)
+FFILL_LIMIT = 4      # max. ennyi hét hiányzó ár kitöltése az előző értékkel
