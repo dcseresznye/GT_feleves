@@ -115,4 +115,41 @@ k2.metric("Költség a jósolt áron (USD)", f"{k_jovo:,.4f}", f"{k_jovo - k_mos
 
 st.line_chart(chart_frame(arr, start_w, path, first_week))
 
+
+# ----------------------------- háttér-információk ----------------------------- #
+with st.expander("Mennyire megbízható az előrejelzés?"):
+    st.write("Az árak az adatban nagyon ritkán változnak, ezért a legfontosabb összevetés a "
+             "**naiv módszer** („az ár nem változik”). A hiba a log(1 + ár) skálán mért átlagos "
+             "abszolút eltérés, ami közelítőleg százalékos eltérésnek felel meg.")
+    tabla = pd.DataFrame(meta["results"]).rename(columns={
+        "model": "Modell", "mae_all": "Hiba (összes minta)", "mae_changed": "Hiba (csak árváltozásnál)"})
+    tabla[["Hiba (összes minta)", "Hiba (csak árváltozásnál)"]] *= 100
+    st.dataframe(tabla.round(3).fillna("–"), hide_index=True)
+    st.caption(f"Értékek %-ban. A teszt minták {meta['test_changed_share']:.1%}-ában változott az ár.")
+    naiv = next(r for r in meta["results"] if r["model"].startswith("Naiv"))
+    sajat = next(r for r in meta["results"] if r["model"] == net_name)
+    if sajat["mae_all"] >= naiv["mae_all"]:
+        st.warning(f"A(z) {net_name} háló a teszten nem teljesített jobban a naiv módszernél, "
+                   "ezért az előrejelzést óvatosan kezeld.")
+
+with st.expander("A modell adatai (2026-os pillanatkép)"):
+    if not os.path.exists(MODELS_PATH):
+        st.caption(f"A(z) {MODELS_PATH} fájl nem található, ezért nincs kiegészítő adat.")
+        st.stop()
+    snap = load_snapshot()
+    sor = snap[snap["model_id"] == model_id]
+    if sor.empty:
+        st.caption("Ehhez a modellhez nincs bejegyzés a 2026-os modellfájlban.")
+    else:
+        sor = sor.iloc[0]
+        st.write(f"Fejlesztő országa: {sor['developer_country']} · "
+                 f"max. bemenet: {sor['max_input_tokens']:,.0f} token · "
+                 f"max. kimenet: {sor['max_output_tokens']:,.0f} token")
+        kepessegek = [c.replace("supports_", "") for c in snap.columns
+                      if c.startswith("supports_") and bool(sor[c])]
+        st.write("Képességek: " + (", ".join(kepessegek) if kepessegek else "nincs jelezve"))
+        if pd.notna(sor["deprecation_date"]):
+            st.warning(f"Tervezett kivezetés dátuma: {sor['deprecation_date']}")
+
+
  
