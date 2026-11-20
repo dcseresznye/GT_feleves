@@ -84,4 +84,35 @@ with st.sidebar:
     out_tokens = st.number_input("Kimeneti tokenek / kérés", min_value=0, value=500, step=100)
     kerelmek = st.number_input("Kérések száma", min_value=1, value=10000, step=1000)
 
+
+
+# ----------------------------- előrejelzés ----------------------------- #
+g = df[df["model_id"] == model_id]
+arr, start_w = price_series(g)
+
+with st.spinner("Előrejelzés számítása..."):
+    path = forecast(load_net(net_name), arr, hetek // HORIZON)
+
+most = arr[-1]
+jovo = path[-1]
+cel_datum = last_week + pd.Timedelta(weeks=hetek)
+
+st.subheader(model_id)
+st.caption(f"Az ártörténet utolsó hete: {last_week.date()}. Az előrejelzés célja: {cel_datum.date()} "
+           f"({hetek} héttel az utolsó adat után). Az árak USD / 1M token (feltételezve, hogy az adatfájl így adja meg).")
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Input ár (most)", f"{most[0]:.4f}")
+c2.metric("Input ár (jóslat)", f"{jovo[0]:.4f}", f"{jovo[0] - most[0]:+.4f}")
+c3.metric("Output ár (most)", f"{most[1]:.4f}")
+c4.metric("Output ár (jóslat)", f"{jovo[1]:.4f}", f"{jovo[1] - most[1]:+.4f}")
+
+k_most = request_cost(in_tokens, out_tokens, kerelmek, most[0], most[1])
+k_jovo = request_cost(in_tokens, out_tokens, kerelmek, jovo[0], jovo[1])
+k1, k2 = st.columns(2)
+k1.metric("Költség a mostani áron (USD)", f"{k_most:,.4f}")
+k2.metric("Költség a jósolt áron (USD)", f"{k_jovo:,.4f}", f"{k_jovo - k_most:+,.4f}")
+
+st.line_chart(chart_frame(arr, start_w, path, first_week))
+
  
