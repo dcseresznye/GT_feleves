@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import streamlit as st
-import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow import keras
 from tensorflow.keras import layers
