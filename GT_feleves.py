@@ -1,15 +1,8 @@
-import pandas as pd
-import numpy as np
-import streamlit as st
-import streamlit as st
+import json
+import os
 
-from tensorflow import keras
-from tensorflow.keras import layers
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import (Input, Embedding, Flatten, Concatenate, Dense, Dropout,
-                                     GRU, LSTM, Conv1D, GlobalMaxPooling1D, Cropping1D)
-from tensorflow.keras.callbacks import EarlyStopping
-from sklearn.preprocessing import LabelEncoder
+import numpy as np
+import pandas as pd
 import streamlit as st
 
 from train_model import (HIST_PATH, MODELS_PATH, IN_COL, OUT_COL, HORIZON, MODEL_DIR, META_PATH,
