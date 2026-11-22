@@ -1,0 +1,53 @@
+{
+  "first_week": "2023-09-18",
+  "window": 12,
+  "horizon": 4,
+  "step": 0.05,
+  "d": 20,
+  "trained": [
+    "GlobalAvgPool",
+    "Conv1D",
+    "LSTM",
+    "GRU",
+    "BiLSTM"
+  ],
+  "best": "BiLSTM",
+  "results": [
+    {
+      "model": "Naiv (nem változik)",
+      "mae_all": 0.015021213039845683,
+      "mae_changed": 0.32874771003225645
+    },
+    {
+      "model": "GlobalAvgPool",
+      "mae_all": 0.016027796809993798,
+      "mae_changed": 0.3283407242558385
+    },
+    {
+      "model": "Conv1D",
+      "mae_all": 0.01560543967446057,
+      "mae_changed": 0.32846031307055557
+    },
+    {
+      "model": "LSTM",
+      "mae_all": 0.015430560670206976,
+      "mae_changed": 0.32861444344030855
+    },
+    {
+      "model": "GRU",
+      "mae_all": 0.015252004557821318,
+      "mae_changed": 0.3286784383691202
+    },
+    {
+      "model": "BiLSTM",
+      "mae_all": 0.01517775443598258,
+      "mae_changed": 0.3287106173292082
+    }
+  ],
+  "test_changed_share": 0.04569222106025259,
+  "n_samples": {
+    "train": 96656,
+    "val": 12391,
+    "test": 12431
+  }
+}
