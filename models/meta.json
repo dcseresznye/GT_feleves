@@ -3,7 +3,6 @@
   "window": 12,
   "horizon": 4,
   "step": 0.05,
-  "d": 20,
   "trained": [
     "GlobalAvgPool",
     "Conv1D",
@@ -20,28 +19,28 @@
     },
     {
       "model": "GlobalAvgPool",
-      "mae_all": 0.016027796809993798,
-      "mae_changed": 0.3283407242558385
+      "mae_all": 0.015297118599190834,
+      "mae_changed": 0.3286377716371866
     },
     {
       "model": "Conv1D",
-      "mae_all": 0.01560543967446057,
-      "mae_changed": 0.32846031307055557
+      "mae_all": 0.015364449088373637,
+      "mae_changed": 0.32867036231834446
     },
     {
       "model": "LSTM",
-      "mae_all": 0.015430560670206976,
-      "mae_changed": 0.32861444344030855
+      "mae_all": 0.015449311739936048,
+      "mae_changed": 0.3285850342570575
     },
     {
       "model": "GRU",
-      "mae_all": 0.015252004557821318,
-      "mae_changed": 0.3286784383691202
+      "mae_all": 0.015326052369186249,
+      "mae_changed": 0.3286377351391489
     },
     {
       "model": "BiLSTM",
-      "mae_all": 0.01517775443598258,
-      "mae_changed": 0.3287106173292082
+      "mae_all": 0.015276165303097224,
+      "mae_changed": 0.3286845438647338
     }
   ],
   "test_changed_share": 0.04569222106025259,
