@@ -16,16 +16,14 @@ WINDOW = 12          # ennyi heti múltbeli ár alapján jósolunk
 HORIZON = 4          # egy jóslási lépés hossza (hét)
 FFILL_LIMIT = 4      # max. ennyi hét hiányzó ár kitöltése az előző értékkel
 
-# --- ár -> token (ársáv) ---
+# --- ár -> token (ársáv): az Embedding réteg egész számokat vár ---
 LOG_MIN, LOG_MAX = -3.0, 3.0     # 0,001 és 1000 USD / 1M token között
 STEP = 0.05                      # egy sáv szélessége (log10 skálán) ~ 12%
 N_BINS = int(round((LOG_MAX - LOG_MIN) / STEP)) + 1     # 0. token = 0 Ft-os ár, 1..120 = ársávok
 VOCAB_SIZE = 2 * N_BINS          # input és output tokenek külön tartomány (az output tokenek +N_BINS)
 
-# --- célosztályok: az ár változása sávokban, -D..+D (a nagyobb ugrás levágódik) ---
-D = 20
-N_CLASSES = 2 * D + 1
-DELTAS = np.arange(-D, D + 1)
+# --- REGRESSZIÓ: a cél a jövőbeli ár változása a log(1+ár) skálán, felszorozva a stabil tanuláshoz ---
+DELTA_SCALE = 10.0
 
 EMBED_DIM = 32
 EPOCHS = 30
@@ -75,7 +73,7 @@ def interleave(tok_window):
 
 
 def build_windows(df):
-    """Minták: az utolsó WINDOW hét tokenjei -> a HORIZON héttel későbbi ár változása (osztály)."""
+    """Minták: az utolsó WINDOW hét tokenjei -> a HORIZON héttel későbbi ár változása (regressziós cél)."""
     X, Y, Wt, last_p, true_p = [], [], [], [], []
     for _, g in df.groupby("model_id"):
         prices, start = price_series(g)
@@ -86,25 +84,23 @@ def build_windows(df):
             if not valid[t - WINDOW + 1:t + 1].all() or not valid[t + HORIZON]:
                 continue
             X.append(interleave(toks[t - WINDOW + 1:t + 1]))
-            Y.append(np.clip(toks[t + HORIZON] - toks[t], -D, D) + D)     # osztály: 0..2D
+            # cél: [input ár változása, output ár változása] a log(1+ár) skálán, felszorozva
+            Y.append((np.log1p(prices[t + HORIZON]) - np.log1p(prices[t])) * DELTA_SCALE)
             Wt.append(start + t + HORIZON)
             last_p.append(prices[t])
             true_p.append(prices[t + HORIZON])
-    return (np.array(X, dtype="int32"), np.array(Y, dtype="int32"), np.array(Wt),
+    return (np.array(X, dtype="int32"), np.array(Y, dtype="float32"), np.array(Wt),
             np.array(last_p), np.array(true_p))
 
 
 # --------------------------------------------------------------------------- #
-# Előrejelzés 
+# Előrejelzés
 # --------------------------------------------------------------------------- #
 
-
-
-def decode_prices(last, p_in, p_out):
-    """Osztály-valószínűségek -> várható ár. last: (n,2) mostani ár, p_*: (n, N_CLASSES).
-    A várható sávváltozást alkalmazzuk az aktuális árra (a 0 Ft-os ár 0 marad)."""
-    e = np.stack([np.asarray(p_in) @ DELTAS, np.asarray(p_out) @ DELTAS], axis=1)
-    return np.asarray(last, dtype=float) * 10 ** (STEP * e)
+def decode_prices(last, pred):
+    """A háló kimenete (skálázott log(1+ár) változás) -> ár. last: (n,2) mostani ár, pred: (n,2)."""
+    log_price = np.log1p(np.asarray(last, dtype=float)) + np.asarray(pred, dtype=float) / DELTA_SCALE
+    return np.maximum(np.expm1(log_price), 0.0)
 
 
 def forecast(model, prices, steps):
@@ -115,8 +111,8 @@ def forecast(model, prices, steps):
     path = []
     for _ in range(steps):
         x = interleave(to_tokens(window))[None].astype("int32")
-        p_in, p_out = model.predict(x, verbose=0)                     # két softmax kimenet
-        new = decode_prices(window[-1][None], np.asarray(p_in), np.asarray(p_out))[0]
+        pred = np.asarray(model.predict(x, verbose=0))                # (1, 2): [input, output] változás
+        new = decode_prices(window[-1][None], pred)[0]
         # heti értékek a mostani és a jósolt ár között (log(1+ár) skálán lineárisan)
         weekly = np.expm1(np.linspace(np.log1p(window[-1]), np.log1p(new), HORIZON + 1)[1:])
         path.append(weekly)
@@ -152,44 +148,39 @@ def request_cost(in_tokens, out_tokens, requests, price_in, price_out):
     return requests * (in_tokens / 1e6 * price_in + out_tokens / 1e6 * price_out)
 
 
-
-
-
-
-
 # --------------------------------------------------------------------------- #
 # Háló + tanítás
 # --------------------------------------------------------------------------- #
 
 def build_model(kind):
-    from tensorflow.keras.models import Model
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.losses import Huber
     from tensorflow.keras.layers import (Input, Embedding, GlobalAveragePooling1D, Conv1D,
                                          GlobalMaxPooling1D, LSTM, GRU, Bidirectional, Dropout, Dense)
 
-    inp = Input((2 * WINDOW,), dtype="int32", name="ar_tokenek")
-    x = Embedding(input_dim=VOCAB_SIZE, output_dim=EMBED_DIM)(inp)
-
     if kind == "GlobalAvgPool":
-        x = GlobalAveragePooling1D()(x)
+        mag = [GlobalAveragePooling1D()]
     elif kind == "Conv1D":
-        x = GlobalMaxPooling1D()(Conv1D(filters=64, kernel_size=4, activation="relu")(x))
+        mag = [Conv1D(filters=64, kernel_size=4, activation="relu"), GlobalMaxPooling1D()]
     elif kind == "LSTM":
-        x = LSTM(64)(x)
+        mag = [LSTM(64)]
     elif kind == "GRU":
-        x = GRU(64)(x)
+        mag = [GRU(64)]
     elif kind == "BiLSTM":
-        x = Bidirectional(LSTM(64))(x)
+        mag = [Bidirectional(LSTM(64))]
     else:
         raise ValueError(kind)
 
-    x = Dropout(0.3)(x)
-    x = Dense(64, activation="relu")(x)
-    x = Dropout(0.3)(x)
-    out_in = Dense(N_CLASSES, activation="softmax", name="input_valtozas")(x)
-    out_out = Dense(N_CLASSES, activation="softmax", name="output_valtozas")(x)
-
-    m = Model(inp, [out_in, out_out])
-    m.compile(optimizer="adam", loss=["sparse_categorical_crossentropy", "sparse_categorical_crossentropy"])
+    m = Sequential([
+        Input((2 * WINDOW,), dtype="int32"),
+        Embedding(input_dim=VOCAB_SIZE, output_dim=EMBED_DIM),
+        *mag,
+        Dropout(0.3),
+        Dense(64, activation="relu"),
+        Dropout(0.3),
+        Dense(2),                       # REGRESSZIÓ: 2 lineáris kimenet = [input ár változása, output ár változása]
+    ])
+    m.compile(optimizer="adam", loss=Huber(), metrics=["mae"])    # Huber: a ritka, nagy árugrásokra kevésbé érzékeny, mint az mse
     return m
 
 
@@ -220,10 +211,6 @@ def main():
     tr, va, te = Wt < cut_val, (Wt >= cut_val) & (Wt < cut_test), Wt >= cut_test
     print("train / val / test:", tr.sum(), va.sum(), te.sum())
 
-    # a két kimenet (input ár, output ár) célosztálya: Y oszlopai
-    def targets(mask):
-        return [Y[mask][:, 0], Y[mask][:, 1]]
-
     changed = (np.abs(true_p[te] - last_p[te]) > 1e-12).any(axis=1)
     results = [{"model": "Naiv (nem változik)",
                 "mae_all": mae_log1p(last_p[te], true_p[te]),
@@ -233,11 +220,11 @@ def main():
         print(f"\n=== {kind} ===")
         net = build_model(kind)
         es = EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True)   # modellenként új
-        net.fit(X[tr], targets(tr), epochs=EPOCHS, batch_size=BATCH_SIZE,
-                validation_data=(X[va], targets(va)), callbacks=[es], verbose=1)
+        net.fit(X[tr], Y[tr], epochs=EPOCHS, batch_size=BATCH_SIZE,
+                validation_data=(X[va], Y[va]), callbacks=[es], verbose=1)
         net.save(os.path.join(MODEL_DIR, f"{kind.lower()}.keras"))
-        p_in, p_out = net.predict(X[te], batch_size=1024, verbose=0)
-        pred = decode_prices(last_p[te], p_in, p_out)
+        pred_delta = net.predict(X[te], batch_size=1024, verbose=0)
+        pred = decode_prices(last_p[te], pred_delta)
         results.append({"model": kind,
                         "mae_all": mae_log1p(pred, true_p[te]),
                         "mae_changed": mae_log1p(pred, true_p[te], changed)})
@@ -247,7 +234,7 @@ def main():
 
     meta = {
         "first_week": str(first_week.date()),
-        "window": WINDOW, "horizon": HORIZON, "step": STEP, "d": D,
+        "window": WINDOW, "horizon": HORIZON, "step": STEP,
         "trained": MODEL_KINDS, "best": best, "results": results,
         "test_changed_share": float(changed.mean()),
         "n_samples": {"train": int(tr.sum()), "val": int(va.sum()), "test": int(te.sum())},
@@ -262,6 +249,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
